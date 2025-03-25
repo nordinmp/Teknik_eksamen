@@ -1,5 +1,5 @@
-const  int BotPin = 4; 
-const int SpillerPin = 2;
+const  int BotPin = 2; 
+const int SpillerPin = 4;
 int RobotM = 0;
 int SpillerM = 0;
 
@@ -15,7 +15,7 @@ void loop() {
 
   if (RobotSignal == LOW) {
     RobotM++;
-    Serial.println("MÅL TIL SPILLEREN");
+    Serial.println("MÅL TIL ROBOTTEN");
     Serial.print("Score: ");
      Serial.print(RobotM);
      Serial.print(" : ");
@@ -24,7 +24,7 @@ void loop() {
   } 
   if (SpillerSignal == LOW) {
     SpillerM++;
-    Serial.println("MÅL TIL ROBOTTEN");
+    Serial.println("MÅL TIL SPILLEREN");
 
      Serial.print("Score: ");
      Serial.print(RobotM);
