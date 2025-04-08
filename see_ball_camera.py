@@ -67,13 +67,13 @@ def track_ball():
     print("Starting video stream...")
     vs = VideoStream(src=0).start()
 
-    # Opsætter trackbars i et separat vindue til justering af farvefiltrering
+    # Opsætter krav i et separat vindue til justering af farvefiltrering
     setup_trackbars()
 
     # Giver tid til at kameraet stabiliserer sig
     time.sleep(2.0)
 
-    # Hovedløkke: kører så længe der modtages frames fra kameraet
+    # Hovedloop: kører så længe der modtages frames fra kameraet
     while True:
         frame = vs.read()  # Læser en enkelt frame fra videostrømmen
         if frame is None:
@@ -82,7 +82,7 @@ def track_ball():
         # Ændrer størrelsen på framen for hurtigere behandling og ensartethed
         frame = imutils.resize(frame, width=600)
 
-        # Henter de aktuelle værdier fra trackbars (HSV-grænser typisk)
+        # Henter værdierne af kravene
         values = get_trackbar_values()
 
         # Finder boldens position baseret på farvefiltrering og konturdetektion

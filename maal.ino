@@ -27,36 +27,22 @@ void loop() {
     if (RobotSignal == LOW) {
         RobotM++;
         showMessage(RobotM, SpillerM);
-        updateLCD();
     }
     
     if (SpillerSignal == LOW) {
         SpillerM++;
         showMessage(RobotM, SpillerM);
-        updateLCD();
     }
     
     if (digitalRead(MinusBotPin) == HIGH && RobotM > 0) {
         RobotM--;
         showMessage(RobotM, SpillerM);
-        updateLCD();
     }
     
     if (digitalRead(MinusSpillerPin) == HIGH && SpillerM > 0) {
         SpillerM--;
         showMessage(RobotM, SpillerM);
-        updateLCD();
     }
-}
-
-void updateLCD() {
-    lcd.clear();
-    lcd.setCursor(1, 0);
-    lcd.print("Robot : Spiller");
-    lcd.setCursor(5, 1);
-    lcd.print(RobotM);
-    lcd.print(" : ");
-    lcd.print(SpillerM);
 }
 
 void showMessage(int robotScore, int spillerScore) {
