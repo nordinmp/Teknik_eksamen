@@ -79,6 +79,8 @@ def track_ball():
         
         if ball_position:
             print(f"Ball detected at: {ball_position}")
+            cv2.circle(frame, ball_position, 10, (0, 255, 0), 2)  # Grøn cirkel
+            cv2.circle(frame, ball_position, 2, (0, 0, 255), -1)  # Rødt punkt i midten
         
         cv2.imshow("Frame", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
