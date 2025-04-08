@@ -63,33 +63,53 @@ def detect_ball(frame, values):
     return None
 
 def track_ball():
+    # Starter videostrømmen fra det primære kamera (typisk webcam)
     print("Starting video stream...")
     vs = VideoStream(src=0).start()
+
+    # Opsætter trackbars i et separat vindue til justering af farvefiltrering
     setup_trackbars()
+
+    # Giver tid til at kameraet stabiliserer sig
     time.sleep(2.0)
-    
+
+    # Hovedløkke: kører så længe der modtages frames fra kameraet
     while True:
-        frame = vs.read()
+        frame = vs.read()  # Læser en enkelt frame fra videostrømmen
         if frame is None:
-            break
-        
+            break  # Stop hvis der ikke kommer flere frames
+
+        # Ændrer størrelsen på framen for hurtigere behandling og ensartethed
         frame = imutils.resize(frame, width=600)
+
+        # Henter de aktuelle værdier fra trackbars (HSV-grænser typisk)
         values = get_trackbar_values()
+
+        # Finder boldens position baseret på farvefiltrering og konturdetektion
         ball_position = detect_ball(frame, values)
-        
+
+        # Hvis bolden blev fundet, vises dens position med cirkler
         if ball_position:
             print(f"Ball detected at: {ball_position}")
-            cv2.circle(frame, ball_position, 10, (0, 255, 0), 2)  # Grøn cirkel
-            cv2.circle(frame, ball_position, 2, (0, 0, 255), -1)  # Rødt punkt i midten
-        
+            # Tegner en grøn cirkel rundt om bolden
+            cv2.circle(frame, ball_position, 10, (0, 255, 0), 2)
+            # Tegner et rødt punkt i midten af bolden
+            cv2.circle(frame, ball_position, 2, (0, 0, 255), -1)
+
+        # Viser den aktuelle frame i et vindue
         cv2.imshow("Frame", frame)
+
+        # Bryder løkken hvis brugeren trykker på 'q'
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
-    
+
+    # Stopper videostrømmen og lukker alle OpenCV-vinduer
     vs.stop()
     cv2.destroyAllWindows()
-    
+
+    # Returnerer den sidste kendte position af bolden
     return ball_position
 
 
+# Kalder funktionen og starter boldsporing
 track_ball()
