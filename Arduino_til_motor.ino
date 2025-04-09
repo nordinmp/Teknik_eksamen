@@ -1,4 +1,5 @@
 #include <Encoder.h>
+#include <PID_v1.h>
 
 // === PIN DEFINITIONS ===
 const int encoderPinA = 2;
@@ -10,8 +11,14 @@ const int in2Pin = 6;
 // === ENCODER SETUP ===
 Encoder myEnc(encoderPinA, encoderPinB);
 
+// === PID SETUP ===
+double input = 0;
+double output = 0;
+double setpoint = 0;
+double Kp = 1.5, Ki = 0.05, Kd = 0.1; // Justér disse værdier
+PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
+
 // === CONTROL SETTINGS ===
-const int deadband = 50;
 const long maxMotorPos = 20000;
 const int camMinY = 30;
 const int camMaxY = 440;
@@ -20,6 +27,7 @@ long targetPos = 0;
 bool initialized = false;
 unsigned long lastUpdateTime = 0;
 const int maxNoUpdateDuration = 1000;
+const int deadband = 50;  // stadig brugt til at nulstille små udsving
 
 // === FUNKTION TIL AT LÆSE LINJER ===
 String readSerialLine() {
@@ -43,16 +51,18 @@ void setup() {
   pinMode(in2Pin, OUTPUT);
   pinMode(enablePin, OUTPUT);
 
+  myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(-255, 255); // output kan være negativt (retning)
+
   Serial.println("Afventer 'START' kommando...");
 }
 
 void loop() {
   unsigned long now = millis();
 
-  // === VENT PÅ "START" FRA PYTHON ===
   if (!initialized) {
-    String input = readSerialLine();
-    if (input == "START") {
+    String inputStr = readSerialLine();
+    if (inputStr == "START") {
       Serial.println("Modtog 'START' – klar til at synkronisere.");
       initialized = true;
     }
@@ -60,18 +70,15 @@ void loop() {
     return;
   }
 
-  // === MODTAG FØRSTE y FOR SYNKRONISERING ===
   if (targetPos == 0) {
-    String input = readSerialLine();
-    if (input.length() > 0) {
-      int spaceIndex = input.indexOf(' ');
+    String inputStr = readSerialLine();
+    if (inputStr.length() > 0) {
+      int spaceIndex = inputStr.indexOf(' ');
       if (spaceIndex > 0) {
-        int x = input.substring(0, spaceIndex).toInt();
-        int y = input.substring(spaceIndex + 1).toInt();
-
+        int y = inputStr.substring(spaceIndex + 1).toInt();
         y = constrain(y, camMinY, camMaxY);
         targetPos = map(y, camMinY, camMaxY, 0, maxMotorPos);
-        myEnc.write(targetPos);
+        myEnc.write(targetPos); // nulstil position til target
         lastUpdateTime = now;
         Serial.println("Synkroniseret med boldens position. Starter styring.");
       }
@@ -80,14 +87,11 @@ void loop() {
     return;
   }
 
-  // === MODTAG NYE KOORDINATER ===
-  String input = readSerialLine();
-  if (input.length() > 0) {
-    int spaceIndex = input.indexOf(' ');
+  String inputStr = readSerialLine();
+  if (inputStr.length() > 0) {
+    int spaceIndex = inputStr.indexOf(' ');
     if (spaceIndex > 0) {
-      int x = input.substring(0, spaceIndex).toInt();
-      int y = input.substring(spaceIndex + 1).toInt();
-
+      int y = inputStr.substring(spaceIndex + 1).toInt();
       y = constrain(y, camMinY, camMaxY);
       targetPos = map(y, camMinY, camMaxY, 0, maxMotorPos);
       lastUpdateTime = now;
@@ -99,8 +103,8 @@ void loop() {
     }
   }
 
-  long motorPos = myEnc.read();
-  long error = targetPos - motorPos;
+  input = myEnc.read();
+  setpoint = targetPos;
 
   if (now - lastUpdateTime > maxNoUpdateDuration) {
     analogWrite(enablePin, 0);
@@ -111,35 +115,32 @@ void loop() {
     return;
   }
 
-  if (abs(error) > 10000) {
-    error = (error > 0) ? 10000 : -10000;
-  }
+  myPID.Compute(); // Beregn output baseret på input og setpoint
 
-  int speed = map(constrain(abs(error), 0, 10000), 0, 10000, 80, 255);
-
-  if (abs(error) > deadband) {
-    if (error > 0) {
+  // Hvis vi er tæt nok på målet, så stop motoren (dødzone)
+  if (abs(setpoint - input) < deadband) {
+    analogWrite(enablePin, 0);
+    digitalWrite(in1Pin, LOW);
+    digitalWrite(in2Pin, LOW);
+  } else {
+    int pwm = abs(output);
+    pwm = constrain(pwm, 80, 255); // minimum kraft
+    if (output > 0) {
       digitalWrite(in1Pin, LOW);
       digitalWrite(in2Pin, HIGH);
     } else {
       digitalWrite(in1Pin, HIGH);
       digitalWrite(in2Pin, LOW);
     }
-    analogWrite(enablePin, speed);
-  } else {
-    analogWrite(enablePin, 0);
-    digitalWrite(in1Pin, LOW);
-    digitalWrite(in2Pin, LOW);
+    analogWrite(enablePin, pwm);
   }
 
   Serial.print("Pos: ");
-  Serial.print(motorPos);
+  Serial.print(input);
   Serial.print("  Target: ");
-  Serial.print(targetPos);
-  Serial.print("  Error: ");
-  Serial.print(error);
-  Serial.print("  Speed: ");
-  Serial.println(speed);
+  Serial.print(setpoint);
+  Serial.print("  Output: ");
+  Serial.println(output);
 
   delay(50);
 }
