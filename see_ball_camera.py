@@ -1,8 +1,13 @@
+# === NY PYTHON-KODE MED HURTIGERE RESPONSTID ===
+
 from imutils.video import VideoStream
 import cv2
-import imutils
 import time
 import serial
+
+# === DEBUG SWITCHES ===
+debug = False         # Vis tekst / print
+visual_debug = True  # Vis billeder, cirkler og maske
 
 def setup_trackbars():
     def nothing(x): pass
@@ -11,12 +16,12 @@ def setup_trackbars():
     cv2.createTrackbar("S Lower", "Trackbars", 0, 255, nothing)
     cv2.createTrackbar("V Lower", "Trackbars", 0, 255, nothing)
     cv2.createTrackbar("H Upper", "Trackbars", 179, 179, nothing)
-    cv2.createTrackbar("S Upper", "Trackbars", 25, 255, nothing)
+    cv2.createTrackbar("S Upper", "Trackbars", 21, 255, nothing)
     cv2.createTrackbar("V Upper", "Trackbars", 255, 255, nothing)
     cv2.createTrackbar("Max Area", "Trackbars", 400, 2500, nothing)
-    cv2.createTrackbar("Erode", "Trackbars", 2, 5, nothing)
-    cv2.createTrackbar("Dilate", "Trackbars", 2, 5, nothing)
-    cv2.createTrackbar("Max radius", "Trackbars", 24, 250, nothing)
+    cv2.createTrackbar("Erode", "Trackbars", 5, 5, nothing)
+    cv2.createTrackbar("Dilate", "Trackbars", 5, 5, nothing)
+    cv2.createTrackbar("Max radius", "Trackbars", 25, 250, nothing)
 
 def get_trackbar_values():
     try:
@@ -42,9 +47,7 @@ def get_trackbar_values():
 
 def detect_ball(frame, values):
     try:
-        blurred = cv2.GaussianBlur(frame, (11, 11), 0)
-        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         hL, hU = sorted([values["hL"], values["hU"]])
         sL, sU = sorted([values["sL"], values["sU"]])
         vL, vU = sorted([values["vL"], values["vU"]])
@@ -52,26 +55,26 @@ def detect_ball(frame, values):
         mask = cv2.inRange(hsv, (hL, sL, vL), (hU, sU, vU))
         mask = cv2.erode(mask, None, iterations=values["er"])
         mask = cv2.dilate(mask, None, iterations=values["di"])
-        cv2.imshow("HSV Mask", mask)
+
+        if visual_debug:
+            cv2.imshow("HSV Mask", mask)
 
         cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cnts = imutils.grab_contours(cnts)
+        cnts = cnts[0] if len(cnts) == 2 else cnts[1]
         cnts = [c for c in cnts if cv2.contourArea(c) > values["mA"]]
 
-        if len(cnts) > 0:
+        if cnts:
             c = max(cnts, key=cv2.contourArea)
             ((x, y), radius) = cv2.minEnclosingCircle(c)
             M = cv2.moments(c)
-
             if M["m00"] != 0 and 5 < radius < values["mR"]:
                 return int(x), int(y)
     except Exception as e:
-        print(f"[Fejl i detect_ball]: {e}")
+        print(f"[FEJL i detect_ball]: {e}")
     return None
 
 def track_ball():
     print("[INFO] Starter video og seriel kommunikation...")
-
     try:
         vs = VideoStream(src=1).start()
         print("[INFO] VideoStream startet")
@@ -90,42 +93,29 @@ def track_ball():
         print(f"[FEJL] Kunne ikke åbne COM8: {e}")
         ser = None
 
-    time.sleep(2)
-
-    # === Preview-fase: kamera og sliders virker, men motor ikke startet ===
-    print("\n[FORHÅNDSVISNING] Juster sliders og placer bolden.")
-    print("[FORHÅNDSVISNING] Tryk ENTER i terminalen for at starte motorstyring...\n")
-
-    while True:
-        frame = vs.read()
-        if frame is None:
-            print("[FEJL] Ingen frame fra kamera")
-            continue
-
-        frame = imutils.resize(frame, width=600)
-        values = get_trackbar_values()
-        ball_pos = detect_ball(frame, values)
-
-        if ball_pos:
-            x, y = ball_pos
-            cv2.circle(frame, (x, y), 10, (0, 255, 0), 2)
-            cv2.circle(frame, (x, y), 2, (0, 0, 255), -1)
-
-        cv2.imshow("Frame", frame)
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            vs.stop()
-            cv2.destroyAllWindows()
-            return
-
-        # Brug klassisk input for ENTER i alle miljøer
-        try:
-            import msvcrt
+    print("[FORHÅNDSVISNING] Tryk ENTER i terminalen for at starte motorstyring...")
+    try:
+        import msvcrt
+        while True:
+            frame = vs.read()
+            if frame is None:
+                continue
+            values = get_trackbar_values()
+            ball_pos = detect_ball(frame, values)
+            if ball_pos and visual_debug:
+                x, y = ball_pos
+                cv2.circle(frame, (x, y), 10, (0, 255, 0), 2)
+                cv2.circle(frame, (x, y), 2, (0, 0, 255), -1)
+            if visual_debug:
+                cv2.imshow("Frame", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    vs.stop()
+                    cv2.destroyAllWindows()
+                    return
             if msvcrt.kbhit() and msvcrt.getch() == b'\r':
                 break
-        except ImportError:
-            input("Tryk ENTER i terminalen for at starte motorstyring...")
-            break
+    except ImportError:
+        input()
 
     if ser:
         ser.write("START\n".encode())
@@ -134,44 +124,36 @@ def track_ball():
     print("[INFO] Starter hovedloop...")
 
     while True:
-        try:
-            frame = vs.read()
-            if frame is None:
-                print("[FEJL] Ingen frame fra kamera")
-                continue
+        frame = vs.read()
+        if frame is None:
+            continue
 
-            frame = imutils.resize(frame, width=600)
-            values = get_trackbar_values()
-            ball_pos = detect_ball(frame, values)
+        values = get_trackbar_values()
+        ball_pos = detect_ball(frame, values)
 
-            if ball_pos:
-                x, y = ball_pos
+        if ball_pos:
+            x, y = ball_pos
+            if debug:
                 print(f"[KAMERA] Bold fundet på x={x}, y={y}")
-                if ser:
-                    try:
-                        ser.write(f"{x} {y}\n".encode())
-                        response = ser.readline().decode().strip()
-                        if response:
-                            print(f"[ARDUINO] Svar: {response}")
-                    except Exception as e:
-                        print(f"[FEJL] Serial skrivning: {e}")
-
+            if ser:
+                try:
+                    ser.write(f"{x} {y}\n".encode())
+                except Exception as e:
+                    print(f"[FEJL] Serial skrivning: {e}")
+            if visual_debug:
                 cv2.circle(frame, (x, y), 10, (0, 255, 0), 2)
                 cv2.circle(frame, (x, y), 2, (0, 0, 255), -1)
 
+        if visual_debug:
             cv2.imshow("Frame", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
-                print("[INFO] Afslutter...")
                 break
-
-        except Exception as e:
-            print(f"[FEJL i hoved-loop]: {e}")
-            continue
 
     vs.stop()
     if ser:
         ser.close()
-    cv2.destroyAllWindows()
+    if visual_debug:
+        cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     print("[INFO] Starter program...")
