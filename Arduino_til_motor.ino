@@ -1,5 +1,4 @@
 #include <Encoder.h>
-#include <PID_v1.h>
 #include <Servo.h>
 
 // === PIN DEFINITIONS ===
@@ -13,21 +12,19 @@ const int servoPin = 9;
 // === ENCODER SETUP ===
 Encoder myEnc(encoderPinA, encoderPinB);
 
-// === PID SETUP ===
-double input = 0;
-double output = 0;
-double setpoint = 0;
-double Kp = 1.5, Ki = 0.05, Kd = 0.1;
-PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
-
 // === CONTROL SETTINGS ===
-const long maxMotorPos = 20000;
-const int camMinY = 30;
-const int camMaxY = 440;
-const int deadband = 50;
-const int shootXMin = 120;
-const int shootXMax = 195;
-const unsigned long shootCooldown = 1000;  // ms
+const long camMinY = 30;
+const long camMaxY = 440;
+const long motorMinPos = 1300;
+const long motorMaxPos = 17000;
+const int deadband = 25;
+const int shootXMin = 140;
+const int shootXMax = 225;
+const unsigned long shootCooldown = 1000;
+
+// === SERVO SETTINGS ===
+const int servoStartPos = 125;
+const int kickOffset = 100;
 
 // === GLOBAL STATE ===
 long targetPos = 0;
@@ -37,17 +34,15 @@ const int maxNoUpdateDuration = 1000;
 unsigned long lastShotTime = 0;
 bool shotReady = true;
 
-// === SERVO SETUP ===
 Servo kicker;
 
 // === Servo state machine ===
 enum ServoState { IDLE, FIRING, RETURNING };
 ServoState servoState = IDLE;
 unsigned long servoStartTime = 0;
-const unsigned long shootDuration = 200;
-const unsigned long returnDuration = 300;
+const unsigned long shootDuration = 400;
+const unsigned long returnDuration = 600;
 
-// === FUNKTION TIL AT LÆSE LINJER ===
 String readSerialLine() {
   static String input = "";
   while (Serial.available()) {
@@ -65,12 +60,11 @@ String readSerialLine() {
 
 void shoot() {
   if (shotReady && servoState == IDLE) {
-    kicker.write(100);  // skub frem
+    kicker.write(servoStartPos + kickOffset);
     servoState = FIRING;
     servoStartTime = millis();
     shotReady = false;
     lastShotTime = millis();
-    Serial.println("[SERVO] Skud igangsat!");
   }
 }
 
@@ -81,45 +75,37 @@ void setup() {
   pinMode(enablePin, OUTPUT);
 
   kicker.attach(servoPin);
-  kicker.write(0);  // hvilestilling
+  kicker.write(servoStartPos);
 
-  myPID.SetMode(AUTOMATIC);
-  myPID.SetOutputLimits(-255, 255);
-
-  Serial.println("Afventer 'START' kommando...");
+  Serial.println("Afventer 'START'...");
 }
 
 void loop() {
   unsigned long now = millis();
 
-  // === SERVOMASKINE ===
+  // Servo styring
   if (servoState == FIRING && now - servoStartTime > shootDuration) {
-    kicker.write(0);  // tilbage til hvilestilling
+    kicker.write(servoStartPos);
     servoState = RETURNING;
     servoStartTime = now;
-  }
-  else if (servoState == RETURNING && now - servoStartTime > returnDuration) {
+  } else if (servoState == RETURNING && now - servoStartTime > returnDuration) {
     servoState = IDLE;
-    Serial.println("[SERVO] Klar igen.");
   }
 
-  // === RESET cooldown ===
   if (!shotReady && now - lastShotTime > shootCooldown) {
     shotReady = true;
   }
 
-  // === VENT PÅ START ===
   if (!initialized) {
     String inputStr = readSerialLine();
     if (inputStr == "START") {
       Serial.println("Modtog 'START' - klar til at synkronisere.");
       initialized = true;
     }
-    delay(100);
+    delay(10);
     return;
   }
 
-  // === SYNKRONISERING ===
   if (targetPos == 0) {
     String inputStr = readSerialLine();
     if (inputStr.length() > 0) {
@@ -127,17 +113,15 @@ void loop() {
       if (spaceIndex > 0) {
         int y = inputStr.substring(spaceIndex + 1).toInt();
         y = constrain(y, camMinY, camMaxY);
-        targetPos = map(y, camMinY, camMaxY, 0, maxMotorPos);
+        targetPos = constrain(map(y, camMinY, camMaxY, motorMinPos, motorMaxPos), motorMinPos, motorMaxPos);
         myEnc.write(targetPos);
         lastUpdateTime = now;
-        Serial.println("Synkroniseret med boldens position. Starter styring.");
       }
     }
-    delay(50);
+    delay(10);
     return;
   }
 
-  // === MODTAG x og y ===
   String inputStr = readSerialLine();
   if (inputStr.length() > 0) {
     int spaceIndex = inputStr.indexOf(' ');
@@ -146,64 +130,27 @@ void loop() {
       int y = inputStr.substring(spaceIndex + 1).toInt();
 
       y = constrain(y, camMinY, camMaxY);
-      targetPos = map(y, camMinY, camMaxY, 0, maxMotorPos);
+      targetPos = constrain(map(y, camMinY, camMaxY, motorMinPos, motorMaxPos), motorMinPos, motorMaxPos);
       lastUpdateTime = now;
 
       if (x >= shootXMin && x <= shootXMax) {
-        shoot();  // skyder uden delay
+        shoot();
       }
-
-      Serial.print("x: ");
-      Serial.print(x);
-      Serial.print("  y: ");
-      Serial.print(y);
-      Serial.print("  => target: ");
-      Serial.println(targetPos);
     }
   }
 
-  input = myEnc.read();
-  setpoint = targetPos;
+  long currentPos = myEnc.read();
+  long error = targetPos - currentPos;
 
-  // === STOP MOTOR HVIS INGEN BOLD ===
-  if (now - lastUpdateTime > maxNoUpdateDuration) {
-    analogWrite(enablePin, 0);
-    digitalWrite(in1Pin, LOW);
-    digitalWrite(in2Pin, LOW);
-    Serial.println("Ingen bold fundet. Motor pauset.");
-    delay(100);
-    return;
-  }
-
-  // === PID MOTORKONTROL ===
-  myPID.Compute();
-
-  if (abs(setpoint - input) < deadband) {
+  if (abs(error) < deadband) {
     analogWrite(enablePin, 0);
     digitalWrite(in1Pin, LOW);
     digitalWrite(in2Pin, LOW);
   } else {
-    int pwm = abs(output);
-    pwm = constrain(pwm, 80, 255);
-    if (output > 0) {
-      digitalWrite(in1Pin, LOW);
-      digitalWrite(in2Pin, HIGH);
-    } else {
-      digitalWrite(in1Pin, HIGH);
-      digitalWrite(in2Pin, LOW);
-    }
-    analogWrite(enablePin, pwm);
+    digitalWrite(in1Pin, error < 0);
+    digitalWrite(in2Pin, error > 0);
+    analogWrite(enablePin, 255);
   }
 
-  // === DEBUG ===
-  Serial.print("Pos: ");
-  Serial.print(input);
-  Serial.print("  Target: ");
-  Serial.print(setpoint);
-  Serial.print("  Output: ");
-  Serial.print(output);
-  Serial.print("  ServoState: ");
-  Serial.println(servoState == IDLE ? "IDLE" : (servoState == FIRING ? "FIRING" : "RETURNING"));
-
-  delay(50);
+  delay(1);
 }
